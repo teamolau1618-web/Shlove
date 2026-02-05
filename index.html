@@ -37,6 +37,63 @@
             gap: 20px; /* Espacio para el cine */
         }
 
+        /* --- CANVAS DIBUJO --- */
+        #drawing-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            cursor: crosshair;
+        }
+
+        #drawing-tools {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: none; /* Se muestra al conectar */
+            flex-direction: column;
+            gap: 15px;
+            background: var(--glass-bg);
+            padding: 15px 10px;
+            border-radius: 30px;
+            border: 1px solid var(--glass-border);
+            backdrop-filter: blur(15px);
+            z-index: 20;
+        }
+
+        .tool-btn {
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+        .tool-btn:hover { background: var(--love-pink); transform: scale(1.1); }
+        .tool-btn.active { background: var(--love-pink); }
+
+        #color-picker {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            width: 35px;
+            height: 35px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            border-radius: 50%;
+            overflow: hidden;
+        }
+        #color-picker::-webkit-color-swatch { border-radius: 50%; border: 2px solid white; }
+
         /* --- CINE SCREEN ESTILOS --- */
         #cinema-container {
             width: 420px; /* Aumentado 20% horizontalmente (350px * 1.2) */
@@ -641,6 +698,15 @@
 </head>
 <body>
 
+<canvas id="drawing-canvas"></canvas>
+
+<div id="drawing-tools">
+    <input type="color" id="color-picker" value="#f72585">
+    <button class="tool-btn" id="btn-brush" title="Pincel Neón"><i class="fa-solid fa-paintbrush"></i></button>
+    <button class="tool-btn" id="btn-eraser" title="Borrador"><i class="fa-solid fa-eraser"></i></button>
+    <button class="tool-btn" id="btn-clear" title="Borrar todo"><i class="fa-solid fa-trash-can"></i></button>
+</div>
+
 <div id="success-toast"><i class="fa-solid fa-circle-check"></i> Perfil actualizado con éxito</div>
 
 <div id="lightbox">
@@ -823,6 +889,101 @@
     const replyTextPreview = document.getElementById('reply-text-preview');
     const cancelReply = document.getElementById('cancel-reply');
 
+    // --- LÓGICA DIBUJO ---
+    const canvas = document.getElementById('drawing-canvas');
+    const ctx = canvas.getContext('2d');
+    const toolsPanel = document.getElementById('drawing-tools');
+    const colorPicker = document.getElementById('color-picker');
+    let drawing = false;
+    let currentMode = 'brush';
+    let lastX = 0;
+    let lastY = 0;
+
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function startDrawing(e) {
+        drawing = true;
+        const x = e.clientX || (e.touches && e.touches[0].clientX);
+        const y = e.clientY || (e.touches && e.touches[0].clientY);
+        lastX = x;
+        lastY = y;
+    }
+
+    function stopDrawing() {
+        drawing = false;
+    }
+
+    function draw(e) {
+        if (!drawing || !currentRoomId) return;
+
+        const x = e.clientX || (e.touches && e.touches[0].clientX);
+        const y = e.clientY || (e.touches && e.touches[0].clientY);
+
+        const drawData = {
+            x: x,
+            y: y,
+            prevX: lastX,
+            prevY: lastY,
+            color: currentMode === 'eraser' ? 'eraser' : colorPicker.value,
+            mode: currentMode,
+            sender: peer.id
+        };
+
+        db.ref(`chats/${currentRoomId}/drawing`).set(drawData);
+        renderStroke(drawData);
+        lastX = x;
+        lastY = y;
+    }
+
+    function renderStroke(data) {
+        ctx.lineWidth = data.mode === 'eraser' ? 30 : 5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        ctx.beginPath();
+        ctx.moveTo(data.prevX, data.prevY);
+
+        if (data.mode === 'eraser') {
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.lineTo(data.x, data.y);
+            ctx.stroke();
+        } else {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = data.color;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = data.color;
+            ctx.lineTo(data.x, data.y);
+            ctx.stroke();
+        }
+        ctx.shadowBlur = 0;
+    }
+
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); startDrawing(e); });
+    canvas.addEventListener('touchmove', (e) => { e.preventDefault(); draw(e); });
+    canvas.addEventListener('touchend', stopDrawing);
+
+    document.getElementById('btn-brush').onclick = () => {
+        currentMode = 'brush';
+        document.getElementById('btn-brush').classList.add('active');
+        document.getElementById('btn-eraser').classList.remove('active');
+    };
+    document.getElementById('btn-eraser').onclick = () => {
+        currentMode = 'eraser';
+        document.getElementById('btn-eraser').classList.add('active');
+        document.getElementById('btn-brush').classList.remove('active');
+    };
+    document.getElementById('btn-clear').onclick = () => {
+        db.ref(`chats/${currentRoomId}/drawing-clear`).set(Date.now());
+    };
+
     // YouTube Variables
     const ytModal = document.getElementById('youtube-modal');
     const ytInput = document.getElementById('yt-url-input');
@@ -885,7 +1046,6 @@
         const state = event.data;
         const currentTime = ytPlayer.getCurrentTime();
 
-        // Solo sincronizamos play (1), pause (2) y buffering (3)
         if (state === 1 || state === 2) {
             db.ref(`chats/${currentRoomId}/cinema`).update({
                 state: state,
@@ -920,11 +1080,6 @@
         if (currentRoomId) {
             db.ref(`chats/${currentRoomId}/presence/${peer.id}`).set(isWindowFocused ? 'En línea' : 'Desconectado');
             if (isWindowFocused) checkSeen();
-            
-            // Pausa automática si me desconecto
-            if (!isWindowFocused && ytPlayer && ytPlayer.getPlayerState() === 1) {
-                ytPlayer.pauseVideo();
-            }
         }
     });
 
@@ -1017,16 +1172,18 @@
 
     function initPeer() {
         const savedMyId = localStorage.getItem('love_my_peer_id');
-		const config = {
+		const peerConfig = {
             config: {
                 'iceServers': [
                     { url: 'stun:stun.l.google.com:19302' },
                     { url: 'stun:stun1.l.google.com:19302' },
-                    { url: 'stun:stun2.l.google.com:19302' }
-                ]
+                    { url: 'stun:stun2.l.google.com:19302' },
+					{ url: 'stun:stun3.l.google.com:19302' },
+                    { url: 'stun:stun4.l.google.com:19302' }
+                ]    
             }
         };
-        peer = savedMyId ? new Peer(savedMyId) : new Peer();
+        peer = savedMyId ? new Peer(savedMyId, peerConfig) : new Peer(peerConfig);
         
         peer.on('open', (id) => {
             myIdDisplay.innerText = id;
@@ -1068,7 +1225,8 @@
         setTimeout(() => {
             connScreen.style.display = 'none';
             chatCard.style.display = 'flex';
-            cinemaContainer.style.display = 'flex'; // Mostrar cine
+            cinemaContainer.style.display = 'flex';
+            toolsPanel.style.display = 'flex';
             startFirebaseListeners(currentRoomId);
             db.ref(`chats/${currentRoomId}/profiles/${peer.id}`).set(myProfileData);
             db.ref(`chats/${currentRoomId}/presence/${peer.id}`).set('En línea');
@@ -1115,12 +1273,23 @@
             }
         });
 
+        // Listener de Dibujo Realtime
+        db.ref(`chats/${roomId}/drawing`).on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data && data.sender !== peer.id) {
+                renderStroke(data);
+            }
+        });
+
+        db.ref(`chats/${roomId}/drawing-clear`).on('value', () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        });
+
         // Listener de Cine (YouTube)
         db.ref(`chats/${roomId}/cinema`).on('value', (snapshot) => {
             const data = snapshot.val();
             if (!data || !ytPlayer) return;
 
-            // Ocultar mensaje y mostrar player al recibir video
             document.getElementById('cinema-no-video').style.display = 'none';
             document.getElementById('player').style.display = 'block';
 
@@ -1160,11 +1329,6 @@
             const status = snapshot.val() || 'Desconectado';
             headerStatus.innerText = status;
             statusDot.className = `status-dot ${status === 'En línea' ? '' : 'offline'}`;
-            
-            // Pausa si el otro se desconecta
-            if (status !== 'En línea' && ytPlayer && ytPlayer.getPlayerState() === 1) {
-                ytPlayer.pauseVideo();
-            }
         });
     }
 
@@ -1324,5 +1488,4 @@
     initPeer();
 </script>
 </body>
-
 </html>
