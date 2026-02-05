@@ -637,9 +637,62 @@
         .btn-modal { flex: 1; padding: 10px; border-radius: 10px; border: none; cursor: pointer; font-weight: bold; }
         .btn-save { background: var(--love-gradient); color: white; }
         .btn-cancel { background: rgba(255, 255, 255, 0.2); color: white; }
+
+        /* --- CANVAS PANEL ESTILOS --- */
+        #drawing-panel {
+            width: 120px;
+            height: 434px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(25px);
+            border-radius: 30px;
+            border: 1px solid var(--glass-border);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            padding: 15px 5px;
+            gap: 15px;
+            z-index: 10;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+        }
+
+        .canvas-tool {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid var(--glass-border);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .canvas-tool:hover, .canvas-tool.active {
+            background: var(--love-gradient);
+            transform: scale(1.1);
+            box-shadow: 0 0 10px var(--love-pink);
+        }
+
+        #drawing-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Dejar interactuar con el resto */
+            z-index: 1;
+        }
+
+        .canvas-active #drawing-canvas {
+            pointer-events: all; /* Solo activamos cuando el mouse está sobre el panel o se inicia trazo */
+        }
     </style>
 </head>
 <body>
+
+<canvas id="drawing-canvas"></canvas>
 
 <div id="success-toast"><i class="fa-solid fa-circle-check"></i> Perfil actualizado con éxito</div>
 
@@ -736,6 +789,19 @@
     </div>
 </div>
 
+<div id="drawing-panel">
+    <p style="color: white; font-size: 10px; font-weight: bold; margin-bottom: 5px;">LIENZO</p>
+    <div class="canvas-tool active" id="tool-pencil" title="Lápiz Neón">
+        <i class="fa-solid fa-pen-nib"></i>
+    </div>
+    <div class="canvas-tool" id="tool-eraser" title="Borrador">
+        <i class="fa-solid fa-eraser"></i>
+    </div>
+    <div class="canvas-tool" id="tool-clear" title="Borrar todo" style="margin-top: auto;">
+        <i class="fa-solid fa-trash-can"></i>
+    </div>
+</div>
+
 <div id="profile-modal">
     <div class="modal-content">
         <h3>Editar Perfil</h3>
@@ -794,6 +860,7 @@
     const connScreen = document.getElementById('connection-screen');
     const chatCard = document.getElementById('main-chat');
     const cinemaContainer = document.getElementById('cinema-container');
+    const drawingPanel = document.getElementById('drawing-panel');
     const myIdDisplay = document.getElementById('my-peer-id');
     const remoteIdInput = document.getElementById('remote-peer-id');
     const connectBtn = document.getElementById('connect-btn');
@@ -836,10 +903,6 @@
     let currentRoomId = null;
     let partnerId = localStorage.getItem('love_partner_id');
 
-    // Notificación de título
-    let titleInterval = null;
-    const originalTitle = "ShLove | ¡Chat with your soulmate!";
-
     const sendSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
     const receiveSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
 
@@ -848,6 +911,87 @@
         nickname: "Nueva cuenta", 
         avatar: "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png" 
     };
+
+    // --- LÓGICA LIENZO NEÓN ---
+    const canvas = document.getElementById('drawing-canvas');
+    const ctx = canvas.getContext('2d');
+    let drawing = false;
+    let currentTool = 'pencil';
+
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function startDrawing(e) {
+        drawing = true;
+        document.body.classList.add('canvas-active');
+        draw(e);
+    }
+
+    function stopDrawing() {
+        drawing = false;
+        ctx.beginPath();
+        document.body.classList.remove('canvas-active');
+    }
+
+    function draw(e) {
+        if (!drawing) return;
+        ctx.lineWidth = currentTool === 'eraser' ? 30 : 5;
+        ctx.lineCap = 'round';
+        
+        if (currentTool === 'pencil') {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = '#f72585';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#f72585';
+        } else {
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.shadowBlur = 0;
+        }
+
+        ctx.lineTo(e.clientX, e.clientY);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(e.clientX, e.clientY);
+
+        // Sincronizar trazo
+        if (currentRoomId) {
+            db.ref(`chats/${currentRoomId}/canvas_sync`).set({
+                x: e.clientX / window.innerWidth,
+                y: e.clientY / window.innerHeight,
+                tool: currentTool,
+                isDrawing: true,
+                sender: peer.id
+            });
+        }
+    }
+
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', draw);
+    window.addEventListener('mouseup', stopDrawing);
+
+    document.getElementById('tool-pencil').onclick = function() {
+        currentTool = 'pencil';
+        this.classList.add('active');
+        document.getElementById('tool-eraser').classList.remove('active');
+    };
+
+    document.getElementById('tool-eraser').onclick = function() {
+        currentTool = 'eraser';
+        this.classList.add('active');
+        document.getElementById('tool-pencil').classList.remove('active');
+    };
+
+    document.getElementById('tool-clear').onclick = function() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (currentRoomId) db.ref(`chats/${currentRoomId}/canvas_clear`).set(Date.now());
+    };
+
+    drawingPanel.onmouseenter = () => document.body.classList.add('canvas-active');
+    drawingPanel.onmouseleave = () => { if(!drawing) document.body.classList.remove('canvas-active'); };
 
     // --- LÓGICA YOUTUBE ---
     document.getElementById('btn-open-yt').onclick = () => ytModal.style.display = 'flex';
@@ -923,23 +1067,11 @@
         isWindowFocused = !document.hidden;
         if (currentRoomId) {
             db.ref(`chats/${currentRoomId}/presence/${peer.id}`).set(isWindowFocused ? 'En línea' : 'Desconectado');
-            if (isWindowFocused) {
-                checkSeen();
-                stopTitleFlash();
-            }
-            
-            // Pausa automática si me desconecto
-            if (!isWindowFocused && ytPlayer && ytPlayer.getPlayerState() === 1) {
-                ytPlayer.pauseVideo();
-            }
+            if (isWindowFocused) checkSeen();
         }
     });
 
-    window.onfocus = () => { 
-        isWindowFocused = true; 
-        checkSeen(); 
-        stopTitleFlash();
-    };
+    window.onfocus = () => { isWindowFocused = true; checkSeen(); };
     window.onblur = () => { isWindowFocused = false; };
 
     function checkSeen() {
@@ -951,24 +1083,6 @@
                 db.ref(`chats/${currentRoomId}/messages/${lastId}/seen`).set(true);
             }
         }
-    }
-
-    // Lógica Alternar Título
-    function startTitleFlash() {
-        if (titleInterval) return;
-        let showOriginal = false;
-        titleInterval = setInterval(() => {
-            document.title = showOriginal ? originalTitle : "❤️ ¡Nuevo mensaje!";
-            showOriginal = !showOriginal;
-        }, 1500);
-    }
-
-    function stopTitleFlash() {
-        if (titleInterval) {
-            clearInterval(titleInterval);
-            titleInterval = null;
-        }
-        document.title = originalTitle;
     }
 
     chatBox.onscroll = checkSeen;
@@ -1097,7 +1211,8 @@
         setTimeout(() => {
             connScreen.style.display = 'none';
             chatCard.style.display = 'flex';
-            cinemaContainer.style.display = 'flex'; // Mostrar cine
+            cinemaContainer.style.display = 'flex'; 
+            drawingPanel.style.display = 'flex';
             startFirebaseListeners(currentRoomId);
             db.ref(`chats/${currentRoomId}/profiles/${peer.id}`).set(myProfileData);
             db.ref(`chats/${currentRoomId}/presence/${peer.id}`).set('En línea');
@@ -1123,10 +1238,7 @@
                     const type = m.sender === peer.id ? 'sent' : 'received';
                     if (!existingIds.includes(m.id.toString())) {
                         addMessage(m.type === 'chat' ? m.text : m.data, type, m.replyTo, m.id, m.type === 'image', m.seen);
-                        if (type === 'received') {
-                            receiveSound.play();
-                            if (!isWindowFocused) startTitleFlash();
-                        }
+                        if (type === 'received') receiveSound.play();
                         else sendSound.play();
                     } else {
                         const msgEl = document.querySelector(`[data-id="${m.id}"]`);
@@ -1147,12 +1259,40 @@
             }
         });
 
+        // Sync Canvas Remoto
+        db.ref(`chats/${roomId}/canvas_sync`).on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data && data.sender !== peer.id) {
+                const rx = data.x * window.innerWidth;
+                const ry = data.y * window.innerHeight;
+                
+                ctx.lineWidth = data.tool === 'eraser' ? 30 : 5;
+                ctx.lineCap = 'round';
+                if (data.tool === 'pencil') {
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.strokeStyle = '#f72585';
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = '#f72585';
+                } else {
+                    ctx.globalCompositeOperation = 'destination-out';
+                    ctx.shadowBlur = 0;
+                }
+                ctx.lineTo(rx, ry);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(rx, ry);
+            }
+        });
+
+        db.ref(`chats/${roomId}/canvas_clear`).on('value', () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        });
+
         // Listener de Cine (YouTube)
         db.ref(`chats/${roomId}/cinema`).on('value', (snapshot) => {
             const data = snapshot.val();
             if (!data || !ytPlayer) return;
 
-            // Ocultar mensaje y mostrar player al recibir video
             document.getElementById('cinema-no-video').style.display = 'none';
             document.getElementById('player').style.display = 'block';
 
@@ -1192,11 +1332,6 @@
             const status = snapshot.val() || 'Desconectado';
             headerStatus.innerText = status;
             statusDot.className = `status-dot ${status === 'En línea' ? '' : 'offline'}`;
-            
-            // Pausa si el otro se desconecta
-            if (status !== 'En línea' && ytPlayer && ytPlayer.getPlayerState() === 1) {
-                ytPlayer.pauseVideo();
-            }
         });
     }
 
@@ -1356,5 +1491,4 @@
     initPeer();
 </script>
 </body>
-
 </html>
