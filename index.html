@@ -163,6 +163,54 @@
 
         #player { width: 100%; height: 100%; display: none; } /* Oculto por defecto para no estorbar */
 
+        /* --- STICKERS ESTILOS --- */
+        #stickers-panel {
+            position: absolute;
+            bottom: 85px;
+            left: 10px;
+            right: 10px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(25px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 15px;
+            display: none;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            max-height: 220px;
+            overflow-y: auto;
+            z-index: 100;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        #stickers-panel::-webkit-scrollbar { width: 5px; }
+        #stickers-panel::-webkit-scrollbar-track { background: transparent; }
+        #stickers-panel::-webkit-scrollbar-thumb { background: var(--soft-pink); border-radius: 10px; }
+
+        .sticker-item {
+            width: 100%;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            object-fit: contain;
+            aspect-ratio: 1/1;
+        }
+
+        .sticker-item:hover {
+            transform: scale(1.15);
+        }
+
+        .msg-sticker {
+            width: 90px;
+            height: auto;
+            display: block;
+            animation: stickerPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        @keyframes stickerPop {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
         /* --- FIN CINE --- */
 
         #connection-screen {
@@ -482,25 +530,6 @@
         .msg-received { background: rgba(255, 255, 255, 0.2); color: white; border-bottom-left-radius: 4px; }
         .msg-sent { background: var(--love-gradient); color: white; border-bottom-right-radius: 4px; box-shadow: 0 4px 12px rgba(114, 9, 183, 0.3); }
 
-        .msg-info { 
-            display: none; 
-            font-size: 8px; 
-            margin-top: 4px; 
-            color: rgba(255,255,255,0.6);
-            opacity: 0; 
-            transition: opacity 0.2s ease;
-        }
-        .sent .msg-info { text-align: right; }
-        .received .msg-info { text-align: left; }
-        
-        .msg-container:hover {
-            margin-bottom: 12px;
-        }
-        .msg-container:hover .msg-info { 
-            display: block;
-            opacity: 1; 
-        }
-
         .msg-status-outer {
             font-size: 9px;
             color: var(--soft-pink);
@@ -522,17 +551,44 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        /* --- CORAZÓN REACCIÓN --- */
         .heart-reaction {
             position: absolute;
-            bottom: -5px;
-            right: -5px;
             color: #ff3b3b;
-            font-size: 10px;
+            font-size: 16px;
             filter: drop-shadow(0 0 3px white);
-            animation: pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             display: none;
+            z-index: 10;
         }
-        .heart-reaction.active { display: block; }
+        
+        /* Posicionamiento del corazón según el tipo de mensaje */
+        .sent .heart-reaction { left: -8px; bottom: -5px; }
+        .received .heart-reaction { right: -8px; bottom: -5px; }
+
+        .heart-reaction.active { 
+            display: block; 
+            animation: heartPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        /* Efectos visuales de corazones flotantes */
+        .tiny-heart {
+            position: absolute;
+            color: #ff3b3b;
+            pointer-events: none;
+            z-index: 100;
+            animation: floatUpTiny 1.5s ease-out forwards;
+        }
+
+        @keyframes floatUpTiny {
+            0% { transform: translateY(0) scale(1) rotate(0); opacity: 1; }
+            100% { transform: translateY(-40px) scale(0.5) rotate(20deg); opacity: 0; }
+        }
+
+        @keyframes heartPop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.6); }
+            100% { transform: scale(1); }
+        }
 
         @keyframes pop {
             0% { transform: scale(0); }
@@ -612,7 +668,7 @@
         .icon-btn {
             color: var(--soft-pink);
             cursor: pointer;
-            font-size: 16px;
+            font-size: 18px;
             transition: transform 0.2s;
             margin-right: 10px;
         }
@@ -783,14 +839,16 @@
     </div>
 
     <div class="chat-input-container">
+        <div id="stickers-panel"></div>
         <div id="reply-preview">
             <div id="reply-text-preview" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;"></div>
             <i class="fa-solid fa-xmark" id="cancel-reply" style="cursor:pointer;"></i>
         </div>
         <div class="chat-input-area">
             <div class="input-wrapper">
-                <label for="chat-file-input" class="icon-btn">
-                    <i class="fa-solid fa-camera"></i>
+                <i class="fa-solid fa-face-smile-beam icon-btn" id="btn-sticker" style="margin-right: 5px;"></i>
+                <label for="chat-file-input" class="icon-btn" id="label-camera">
+                    <i class="fa-solid fa-camera-retro"></i>
                 </label>
                 <input type="file" id="chat-file-input" hidden accept="image/*">
                 <input type="text" id="user-input" placeholder="Envía amor..." autocomplete="off">
@@ -888,6 +946,56 @@
     const replyPreview = document.getElementById('reply-preview');
     const replyTextPreview = document.getElementById('reply-text-preview');
     const cancelReply = document.getElementById('cancel-reply');
+
+    // --- LÓGICA STICKERS ---
+    const stickersPanel = document.getElementById('stickers-panel');
+    const btnSticker = document.getElementById('btn-sticker');
+    const listaStickers = [
+        '1.jpg', '2.jpg', '3.png', '4.jpg', 
+        '5.jpg', '6.jpg', '7.jpg', '8.jpg',
+        '9.jpg', '10.jpg', '11.jpg', '12.jpg',
+        '13.jpg', '14.jpg', '15.png', '16.png',
+		'17.png'
+    ];
+
+    function renderizarPanel() {
+        stickersPanel.innerHTML = '';
+        listaStickers.forEach(sticker => {
+            const img = document.createElement('img');
+            img.src = `stickers/${sticker}`;
+            img.className = 'sticker-item';
+            img.onclick = () => enviarSticker(`stickers/${sticker}`);
+            stickersPanel.appendChild(img);
+        });
+    }
+    renderizarPanel();
+
+    btnSticker.onclick = (e) => {
+        e.stopPropagation();
+        stickerOpenSound.play();
+        const isVisible = stickersPanel.style.display === 'grid';
+        stickersPanel.style.display = isVisible ? 'none' : 'grid';
+    };
+
+    document.addEventListener('click', (e) => {
+        if (!stickersPanel.contains(e.target) && e.target !== btnSticker) {
+            stickersPanel.style.display = 'none';
+        }
+    });
+
+    function enviarSticker(path) {
+        const msgId = Date.now();
+        const msgData = {
+            type: 'sticker',
+            data: path,
+            id: msgId,
+            sender: peer.id,
+            time: new Date().toISOString(),
+            seen: false
+        };
+        saveMessageToFirebase(msgData);
+        stickersPanel.style.display = 'none';
+    }
 
     // --- LÓGICA DIBUJO ---
     const canvas = document.getElementById('drawing-canvas');
@@ -997,8 +1105,14 @@
     let currentRoomId = null;
     let partnerId = localStorage.getItem('love_partner_id');
 
+    // --- SONIDOS ---
     const sendSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
     const receiveSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3');
+    const likeSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
+    const stickerOpenSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3');
+    const cameraSound = new Audio('https://assets.mixkit.co/active_storage/sfx/547/547-preview.mp3');
+
+    document.getElementById('label-camera').onclick = () => cameraSound.play();
 
     let myProfileData = JSON.parse(localStorage.getItem('love_chat_profile')) || { 
         name: "Desconocido", 
@@ -1251,9 +1365,11 @@
                 Object.values(messages).sort((a,b) => new Date(a.time) - new Date(b.time)).forEach(m => {
                     const type = m.sender === peer.id ? 'sent' : 'received';
                     if (!existingIds.includes(m.id.toString())) {
-                        addMessage(m.type === 'chat' ? m.text : m.data, type, m.replyTo, m.id, m.type === 'image', m.seen);
+                        addMessage(m.type === 'chat' ? m.text : m.data, type, m.replyTo, m.id, m.type === 'image', m.seen, m.type === 'sticker');
                         if (type === 'received') receiveSound.play();
                         else sendSound.play();
+                        // Aplicar reacción si ya existe al cargar historial
+                        if (m.reaction) toggleHeart(m.id, false, true);
                     } else {
                         const msgEl = document.querySelector(`[data-id="${m.id}"]`);
                         if (msgEl) {
@@ -1334,9 +1450,7 @@
 
     userInput.oninput = () => { if (conn && conn.open) conn.send({ type: 'typing' }); };
 
-    function addMessage(content, type, replyTo = null, id, isImage = false, isSeen = false) {
-        const timeObj = new Date(parseInt(id));
-        const time = timeObj.getHours() + ":" + timeObj.getMinutes().toString().padStart(2, '0');
+    function addMessage(content, type, replyTo = null, id, isImage = false, isSeen = false, isSticker = false) {
         const container = document.createElement('div');
         container.className = `msg-container ${type} ${isImage ? 'has-image' : ''}`;
         container.setAttribute('data-id', id);
@@ -1344,7 +1458,9 @@
         let replyHtml = replyTo ? `<span class="reply-content"><i class="fa-solid fa-reply"></i> ${replyTo.length > 20 ? 'Imagen/Texto' : replyTo}</span>` : '';
         
         let bodyHtml = '';
-        if (isImage) {
+        if (isSticker) {
+            bodyHtml = `<img src="${content}" class="msg-sticker">`;
+        } else if (isImage) {
             bodyHtml = `<img src="${content}" class="chat-img" onclick="openLightbox('${content}')">`;
         } else {
             const isLong = content.length > 150;
@@ -1357,13 +1473,12 @@
         let statusContent = (type === 'sent') ? (isSeen ? 'Visto' : '<div class="loading-ring"></div>') : '';
 
         container.innerHTML = `
-            <i class="fa-solid fa-ellipsis-vertical msg-menu-btn" onclick="openMsgOptions('${id}', '${isImage}', '${type}', '${isImage ? 'Imagen' : content.replace(/'/g, "\\'")}')"></i>
+            <i class="fa-solid fa-ellipsis-vertical msg-menu-btn" onclick="openMsgOptions('${id}', '${isImage}', '${type}', '${isImage ? 'Imagen' : (isSticker ? 'Sticker' : content.replace(/'/g, "\\'"))}', ${isSticker})"></i>
             <div class="msg msg-${type}" ondblclick="handleDblClick(event, '${id}')">
                 ${replyHtml}
                 ${bodyHtml}
                 <i class="fa-solid fa-heart heart-reaction"></i>
             </div>
-            <span class="msg-info">${time}</span>
             <div class="msg-status-outer">${statusContent}</div>
         `;
         chatBox.appendChild(container);
@@ -1377,7 +1492,7 @@
         scrollToBottom();
     }
 
-    window.openMsgOptions = (id, isImage, type, text) => {
+    window.openMsgOptions = (id, isImage, type, text, isSticker) => {
         optionsMenu.innerHTML = '';
         const isImg = isImage === 'true';
         
@@ -1387,7 +1502,7 @@
         replyBtn.onclick = () => { prepareReply(id, text); closeOptions(); };
         optionsMenu.appendChild(replyBtn);
 
-        if (!isImg && type === 'sent') {
+        if (!isImg && !isSticker && type === 'sent') {
             const editBtn = document.createElement('button');
             editBtn.className = 'action-btn';
             editBtn.innerHTML = '<i class="fa-solid fa-pen"></i>';
@@ -1407,18 +1522,45 @@
     function closeOptions() { optionsOverlay.style.display = 'none'; }
     optionsOverlay.onclick = (e) => { if(e.target === optionsOverlay) closeOptions(); };
 
+    function spawnTinyHearts(element) {
+        const container = element.closest('.msg');
+        for(let i=0; i<12; i++) {
+            const tiny = document.createElement('i');
+            tiny.className = 'fa-solid fa-heart tiny-heart';
+            tiny.style.left = centerX + 'px';
+            tiny.style.top = centerY + 'px';
+            tiny.style.fontSize = (Math.random() * 8 + 6) + 'px';
+            tiny.style.animationDelay = (Math.random() * 0.3) + 's';
+            container.appendChild(tiny);
+            setTimeout(() => tiny.remove(), 800);
+        }
+    }
+
     function handleDblClick(e, id) {
         const heart = document.querySelector(`[data-id="${id}"] .heart-reaction`);
         const newState = !heart.classList.contains('active');
         db.ref(`chats/${currentRoomId}/messages/${id}/reaction`).set(newState);
+        
+        if(newState) {
+            likeSound.play();
+            spawnTinyHearts(heart);
+        }
     }
 
     function toggleHeart(id, emit, forceState = null) {
         const msgContainer = document.querySelector(`[data-id="${id}"]`);
         if (!msgContainer) return;
         const heart = msgContainer.querySelector('.heart-reaction');
+        const currentState = heart.classList.contains('active');
+
         if (forceState !== null) {
-            forceState ? heart.classList.add('active') : heart.classList.remove('active');
+            if (forceState && !currentState) {
+                heart.classList.add('active');
+                likeSound.play();
+                spawnTinyHearts(heart);
+            } else if (!forceState) {
+                heart.classList.remove('active');
+            }
         }
     }
 
