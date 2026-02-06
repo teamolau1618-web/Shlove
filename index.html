@@ -23,6 +23,35 @@
             --vivid-red: #ff0000;
         }
 
+        /* --- MODO GEMINI (ANTILAG) --- */
+        body.gemini-ui {
+            background: #131314 !important;
+        }
+        body.gemini-ui .heart-bg { display: none !important; }
+        body.gemini-ui .chat-card, 
+        body.gemini-ui #cinema-container, 
+        body.gemini-ui .conn-card, 
+        body.gemini-ui #drawing-tools, 
+        body.gemini-ui .modal-content {
+            background: #1e1f20 !important;
+            backdrop-filter: none !important;
+            border-color: #333537 !important;
+        }
+        body.gemini-ui .msg-sent {
+            background: #d3e3fd !important;
+            color: #041e49 !important;
+            box-shadow: none !important;
+        }
+        body.gemini-ui .msg-received {
+            background: #333537 !important;
+            color: #e3e3e3 !important;
+        }
+        body.gemini-ui .btn-send, body.gemini-ui .btn-connect, body.gemini-ui .btn-save, body.gemini-ui #btn-new-chat {
+            background: #a8c7fa !important;
+            color: #041e49 !important;
+        }
+        body.gemini-ui .nickname-text, body.gemini-ui .status-msg { color: #a8c7fa !important; }
+
         body {
             background: #240046;
             background: radial-gradient(circle, #3c096c 0%, #240046 100%);
@@ -862,7 +891,12 @@
 
 <div id="profile-modal">
     <div class="modal-content">
-        <h3>Editar Perfil</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3 style="margin: 0;">Editar Perfil</h3>
+            <button id="toggle-gemini" style="background: none; border: 1px solid var(--glass-border); color: white; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.3s;" title="Modo Gemini UI">
+                <i class="fa-solid fa-robot"></i>
+            </button>
+        </div>
         <div class="drop-zone" id="drop-zone">
             <span id="drop-text" style="font-size: 10px; color: var(--soft-pink);">Arrastra tu foto</span>
             <img id="preview-img" style="display:none;">
@@ -946,6 +980,14 @@
     const replyPreview = document.getElementById('reply-preview');
     const replyTextPreview = document.getElementById('reply-text-preview');
     const cancelReply = document.getElementById('cancel-reply');
+
+    // --- LÓGICA MODAL GEMINI (ANTILAG) ---
+    document.getElementById('toggle-gemini').onclick = () => {
+        document.body.classList.toggle('gemini-ui');
+        const isGemini = document.body.classList.contains('gemini-ui');
+        document.getElementById('toggle-gemini').style.background = isGemini ? '#a8c7fa' : 'none';
+        document.getElementById('toggle-gemini').style.color = isGemini ? '#041e49' : 'white';
+    };
 
     // --- LÓGICA STICKERS ---
     const stickersPanel = document.getElementById('stickers-panel');
