@@ -32,7 +32,6 @@
         body.gemini-ui .heart-bg { display: none !important; }
         body.gemini-ui .chat-card, 
         body.gemini-ui #cinema-container, 
-        body.gemini-ui .conn-card, 
         body.gemini-ui #drawing-tools, 
         body.gemini-ui .modal-content,
         body.gemini-ui #stickers-panel { /* Gemini UI for the new panel */
@@ -203,7 +202,8 @@
             position: relative;
         }
 
-        #player { width: 100%; height: 100%; display: none; } /* Oculto por defecto para no estorbar */
+        #player { width: 100%; height: 100%; } /* Aseguramos que el reproductor siempre esté renderizado detrás del mensaje de no video. */
+        /* #player { width: 100%; height: 100%; display: none; } Oculto por defecto para no estorbar ORIGINAL */
 
         /* --- STICKERS Y EMOJIS PANEL ESTILOS (MODIFICADO) --- */
         #stickers-panel { /* This now acts as the wrapper for both stickers and emojis */
@@ -740,13 +740,16 @@
         #typing-bubble {
             display: none;
             background: rgba(255, 255, 255, 0.15);
-            padding: 8px 12px;
-            border-radius: 15px;
+            padding: 10px 14px; /* Adjusted padding to match msg bubbles */
+            border-radius: 18px; /* Adjusted radius to match msg bubbles */
             border-bottom-left-radius: 4px;
             align-self: flex-start;
-            width: fit-content;
+            min-width: 50px; /* Ensure it's not too thin */
+            max-width: 85%; /* Limit width like other messages */
+            width: fit-content; /* Allow content to dictate width up to max-width */
             margin-top: 5px;
             order: 9999;
+            box-sizing: border-box; /* Include padding in width calculation */
         }
 
         .dots span {
@@ -1111,11 +1114,20 @@
     const cancelReply = document.getElementById('cancel-reply');
 
     // --- LÓGICA MODAL GEMINI (ANTILAG) ---
+    // Load Gemini UI preference on page load
+    const savedGeminiUI = localStorage.getItem('gemini_ui_enabled');
+    if (savedGeminiUI === 'true') {
+        document.body.classList.add('gemini-ui');
+        document.getElementById('toggle-gemini').style.background = '#a8c7fa';
+        document.getElementById('toggle-gemini').style.color = '#041e49';
+    }
+
     document.getElementById('toggle-gemini').onclick = () => {
         document.body.classList.toggle('gemini-ui');
         const isGemini = document.body.classList.contains('gemini-ui');
         document.getElementById('toggle-gemini').style.background = isGemini ? '#a8c7fa' : 'none';
         document.getElementById('toggle-gemini').style.color = isGemini ? '#041e49' : 'white';
+        localStorage.setItem('gemini_ui_enabled', isGemini); // Save preference
     };
 
     // --- LÓGICA STICKERS Y EMOJIS (MODIFICADO) ---
@@ -1306,6 +1318,8 @@
         // Render locally immediately for instant feedback
         renderStroke(drawData);
         lastX = x;
+        ctx.lineWidth = currentMode === 'eraser' ? 30 : 5; // Ensure lineWidth is reset after drawing
+        ctx.shadowBlur = 0; // Clear shadow after drawing
         lastY = y;
     }
 
@@ -1524,8 +1538,6 @@
 
         if (remainingQueue.length === 0) {
             console.log("All offline queue items processed.");
-        } else {
-            console.warn(`${remainingQueue.length} items remain in offline queue.`);
         }
     }
 
@@ -1566,6 +1578,7 @@
                 'onStateChange': onPlayerStateChange
             }
         });
+        // Do not load any video initially here. The Firebase listener will handle initial load.
     }
 
     function extractVideoId(url) {
@@ -1578,10 +1591,11 @@
         const url = ytInput.value.trim();
         const id = extractVideoId(url);
         if (id && currentRoomId) {
+            // Always set time to 0 for a new video load
             safeFirebaseSet(`chats/${currentRoomId}/cinema`, {
                 videoId: id,
-                state: -1,
-                time: 0,
+                state: -1, // -1 means unstarted
+                time: 0, // Always start new videos from 0:00
                 sender: myUserId,
                 timestamp: Date.now()
             });
@@ -1596,7 +1610,8 @@
         const state = event.data;
         const currentTime = ytPlayer.getCurrentTime();
 
-        if (state === 1 || state === 2) {
+        // Only send updates for playing (1), paused (2), or ended (0) states
+        if (state === 1 || state === 2 || state === 0) { // MODIFIED: Added state 0 (ended)
             safeFirebaseUpdate(`chats/${currentRoomId}/cinema`, {
                 state: state,
                 time: currentTime,
@@ -1648,7 +1663,10 @@
             if (messages.length > 0) {
                 const lastMsg = messages[messages.length - 1];
                 const lastId = lastMsg.getAttribute('data-id');
-                safeFirebaseSet(`chats/${currentRoomId}/messages/${lastId}/seen`, true);
+                // Only mark as seen if it's not already seen and it's a message from the partner
+                if (!lastMsg.classList.contains('seen')) { // Assuming a 'seen' class can be added
+                    safeFirebaseSet(`chats/${currentRoomId}/messages/${lastId}/seen`, true);
+                }
             }
         }
     }
@@ -1659,6 +1677,9 @@
         inputName.value = myProfileData.name;
         inputNickname.value = myProfileData.nickname;
         profileModal.style.display = 'flex';
+        // Reset toast to its original state when opening modal
+        toast.innerHTML = '<i class="fa-solid fa-circle-check"></i> Perfil actualizado con éxito';
+        toast.style.background = 'rgba(46, 204, 113, 0.9)'; // Reset to success green
     };
 
     document.getElementById('close-modal').onclick = () => profileModal.style.display = 'none';
@@ -1683,30 +1704,39 @@
     dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.classList.remove('drag-over'); handleFile(e.dataTransfer.files[0]); });
 
     document.getElementById('save-profile').onclick = () => {
+        const oldName = myProfileData.name;
+        const oldNickname = myProfileData.nickname;
+        const oldAvatar = myProfileData.avatar;
+
         myProfileData.name = inputName.value.trim() || myProfileData.name;
         myProfileData.nickname = inputNickname.value.trim() || myProfileData.nickname;
+        // Avatar is updated in handleFile function directly into myProfileData
+
         localStorage.setItem('love_chat_profile', JSON.stringify(myProfileData));
         if (currentRoomId) {
             safeFirebaseSet(`chats/${currentRoomId}/profiles/${myUserId}`, myProfileData);
         }
-        // REMOVED: updateMyProfileUI(); // Update local UI immediately (Point 1 Fix)
         profileModal.style.display = 'none';
-        // Ensure the toast is reset before showing it
-        toast.innerHTML = '<i class="fa-solid fa-circle-check"></i> Perfil actualizado con éxito';
-        toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 3000);
+
+        // Only show "Perfil actualizado" if something actually changed
+        if (oldName !== myProfileData.name || oldNickname !== myProfileData.nickname || oldAvatar !== myProfileData.avatar) {
+            toast.innerHTML = '<i class="fa-solid fa-circle-check"></i> Perfil actualizado con éxito';
+            toast.style.background = 'rgba(46, 204, 113, 0.9)'; // Ensure it's green
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
     };
 
     // New button for Copy My ID in profile modal
     document.getElementById('copy-my-id-btn').onclick = () => {
         const myId = document.getElementById('my-peer-id').innerText;
         navigator.clipboard.writeText(myId);
-        toast.innerHTML = '<i class="fa-solid fa-clipboard-check"></i> ID Copiado!'; // Changed text and icon
+        
+        toast.innerHTML = '<i class="fa-solid fa-clipboard-check"></i> Código copiado'; // Changed text and icon
+        toast.style.background = 'rgba(46, 204, 113, 0.9)'; // Ensure it's green
         toast.classList.add('show');
         setTimeout(() => {
             toast.classList.remove('show');
-            // Reset toast to its original "Perfil actualizado" state
-            toast.innerHTML = '<i class="fa-solid fa-circle-check"></i> Perfil actualizado con éxito';
         }, 3000);
         profileModal.style.display = 'none';
     };
@@ -1718,7 +1748,23 @@
 
     function saveMessageToFirebase(msgData) {
         if (currentRoomId) {
-            safeFirebaseSet(`chats/${currentRoomId}/messages/${msgData.id}`, msgData);
+            db.ref(`chats/${currentRoomId}/messages/${msgData.id}`).set(msgData)
+                .then(() => {
+                    // Firebase successfully received the message, remove pending state
+                    const msgElement = document.querySelector(`.msg-container[data-id="${msgData.id}"]`);
+                    if (msgElement) {
+                        msgElement.classList.remove('pending');
+                        if (msgData.sender === myUserId) sendSound.play(); // Play send sound when confirmed by Firebase
+                    }
+                })
+                .catch(error => {
+                    console.error("Error saving message to Firebase:", error);
+                    // If saving fails, it remains pending in the UI and gets added to offline queue
+                    addToOfflineQueue('set', `chats/${currentRoomId}/messages/${msgData.id}`, msgData);
+                });
+        } else {
+            // No current room, treat as offline and queue immediately
+            addToOfflineQueue('set', `chats/temp_room/messages/${msgData.id}`, msgData); // Using a temp room for queuing
         }
     }
 
@@ -1764,23 +1810,10 @@
             localStorage.setItem('love_my_peer_id', id);
             myUserId = id; // Update the global myUserId once peer is open
 
-            // If a partnerId exists from localStorage, attempt to immediately show chat UI
+            // If a partnerId exists from localStorage, attempt to connect but DO NOT show UI immediately.
             if (partnerId && myUserId !== partnerId) {
-                // Hide connection screen and show chat elements immediately
-                connScreen.style.opacity = '0';
-                setTimeout(() => {
-                    connScreen.style.display = 'none';
-                    chatCard.style.display = 'flex';
-                    cinemaContainer.style.display = 'flex';
-                    toolsPanel.style.display = 'flex';
-                    currentRoomId = [myUserId, partnerId].sort().join('_');
-                    startFirebaseListeners(currentRoomId);
-                    // Send my profile data and presence as soon as Firebase is connected or queue it
-                    safeFirebaseSet(`chats/${currentRoomId}/profiles/${myUserId}`, myProfileData);
-                    safeFirebaseSet(`chats/${currentRoomId}/presence/${myUserId}`, 'En línea');
-                    updateNetworkStatusDisplay(); // Update status based on current network state
-                    connectToPartner(partnerId); // Attempt PeerJS connection in background
-                }, 500);
+                statusText.innerText = "Intentando conectar con tu alma gemela..."; 
+                connectToPartner(partnerId); // Attempt PeerJS connection in background
             } else if (myUserId === partnerId) {
                 // Prevent self-connection issue if somehow peerId and partnerId are the same
                 localStorage.removeItem('love_partner_id');
@@ -1794,26 +1827,52 @@
             conn = connection; 
             partnerId = conn.peer;
             localStorage.setItem('love_partner_id', partnerId);
-            // If the UI is already showing the chat (due to previous session restore),
-            // just ensure listeners are active and presence is updated.
-            if (chatCard.style.display === 'flex') {
-                currentRoomId = [myUserId, partnerId].sort().join('_');
-                startFirebaseListeners(currentRoomId); // Re-establish if needed
-                safeFirebaseSet(`chats/${currentRoomId}/profiles/${myUserId}`, myProfileData);
-                safeFirebaseSet(`chats/${currentRoomId}/presence/${myUserId}`, 'En línea');
-                updateNetworkStatusDisplay();
-            } else {
-                setupChatUI(); // Otherwise, proceed with normal UI setup
-            }
+            // Setup chat UI only after a successful PeerJS connection (inbound)
+            setupChatUI();
+            conn.on('data', (data) => {
+                if (data.type === 'typing') {
+                    typingBubble.style.display = 'block';
+                    scrollToBottom();
+                    clearTimeout(typingTimeout);
+                    typingTimeout = setTimeout(() => typingBubble.style.display = 'none', 2000);
+                }
+            });
+             conn.on('close', () => {
+                console.log("PeerJS connection closed (inbound).");
+                if (currentRoomId) { // We are in a chat context
+                    headerStatus.innerText = 'Desconectado';
+                    statusDot.classList.add('offline');
+                    // Do not redirect to connection screen, stay in chat and indicate status
+                } else { // PeerJS connection was closed before chat UI was fully set up
+                    // This case should ideally not happen if setupChatUI handles transitions correctly
+                    connScreen.style.opacity = '1';
+                    connScreen.style.display = 'flex';
+                    chatCard.style.display = 'none';
+                    cinemaContainer.style.display = 'none';
+                    toolsPanel.style.display = 'none';
+                    statusText.innerText = "Conexión PeerJS perdida. Esperando conexión...";
+                    updateNetworkStatusDisplay();
+                }
+            });
         });
+
+        // Manual connect button handler
+        connectBtn.onclick = () => {
+            const remoteId = remoteIdInput.value.trim();
+            if (remoteId && myUserId && remoteId !== myUserId) {
+                connectToPartner(remoteId);
+            } else if (remoteId === myUserId) {
+                statusText.innerText = "No puedes conectar contigo mismo.";
+            } else {
+                statusText.innerText = "Por favor, ingresa un ID válido.";
+            }
+        };
 
         myIdDisplay.onclick = () => { 
             navigator.clipboard.writeText(myIdDisplay.innerText); 
-            toast.innerHTML = '<i class="fa-solid fa-clipboard-check"></i> ID Copiado!';
-            toast.classList.add('show');
+            statusText.innerText = 'Código copiado'; // Update status text on connection screen
             setTimeout(() => {
-                toast.classList.remove('show');
-                toast.innerHTML = '<i class="fa-solid fa-circle-check"></i> Perfil actualizado con éxito';
+                updateNetworkStatusDisplay(); // Reset status text after a short delay
             }, 3000);
         };
     }
@@ -1823,33 +1882,48 @@
         conn = peer.connect(rid); 
         conn.on('open', () => {
             partnerId = rid;
-            localStorage.setItem('love_partner_id', rid);
-            // If the UI is already set up (from localStorage), this just confirms PeerJS connection.
-            if (chatCard.style.display !== 'flex') {
-                setupChatUI();
-            } else {
-                // PeerJS connected, ensure typing indicators work
-                if (conn) {
-                    conn.on('data', (data) => {
-                        if (data.type === 'typing') {
-                            typingBubble.style.display = 'block';
-                            scrollToBottom();
-                            clearTimeout(typingTimeout);
-                            typingTimeout = setTimeout(() => typingBubble.style.display = 'none', 2000);
-                        }
-                    });
-                }
+            localStorage.setItem('love_partner_id', partnerId);
+            // Setup chat UI only after a successful PeerJS connection (outbound)
+            setupChatUI();
+            if (conn) {
+                conn.on('data', (data) => {
+                    if (data.type === 'typing') {
+                        typingBubble.style.display = 'block';
+                        scrollToBottom();
+                        clearTimeout(typingTimeout);
+                        typingTimeout = setTimeout(() => typingBubble.style.display = 'none', 2000);
+                    }
+                });
             }
         });
         conn.on('error', (err) => {
             console.error("PeerJS connection error:", err);
             statusText.innerText = "Error al conectar, ID incorrecto o no disponible.";
             updateNetworkStatusDisplay();
+            // If PeerJS connection fails, and we were trying to auto-reconnect, remove partnerId from local storage
+            if (localStorage.getItem('love_partner_id') === rid) {
+                localStorage.removeItem('love_partner_id');
+                partnerId = null;
+            }
         });
         conn.on('close', () => {
-            console.log("PeerJS connection closed.");
-            statusText.innerText = "Conexión PeerJS perdida.";
-            updateNetworkStatusDisplay();
+            console.log("PeerJS connection closed (outbound).");
+            if (currentRoomId) { // We are in a chat context
+                headerStatus.innerText = 'Desconectado';
+                statusDot.classList.add('offline');
+                // Do not redirect to connection screen, stay in chat and indicate status
+            } else { // PeerJS connection was closed before chat UI was fully set up
+                connScreen.style.opacity = '1';
+                connScreen.style.display = 'flex';
+                chatCard.style.display = 'none';
+                cinemaContainer.style.display = 'none';
+                toolsPanel.style.display = 'none';
+                statusText.innerText = "Conexión PeerJS perdida. Esperando conexión...";
+                updateNetworkStatusDisplay();
+            }
+            // Crucially, remove this line:
+            // localStorage.removeItem('love_partner_id'); 
+            // partnerId = null; 
         });
     }
 
@@ -1866,17 +1940,6 @@
             safeFirebaseSet(`chats/${currentRoomId}/presence/${myUserId}`, 'En línea'); // Use myUserId here
             updateNetworkStatusDisplay(); // Ensure status is updated
         }, 500);
-
-        if (conn) { // conn might not be immediately available if PeerJS connection is async
-            conn.on('data', (data) => {
-                if (data.type === 'typing') {
-                    typingBubble.style.display = 'block';
-                    scrollToBottom();
-                    clearTimeout(typingTimeout);
-                    typingTimeout = setTimeout(() => typingBubble.style.display = 'none', 2000);
-                }
-            });
-        }
     }
 
     function startFirebaseListeners(roomId) {
@@ -1895,7 +1958,6 @@
                     if (!existingIds.includes(m.id.toString())) {
                         addMessage(m.type === 'chat' ? m.text : m.data, type, m.replyTo, m.id, m.type === 'image', m.type === 'sticker', false, m.seen); // Added isPending = false
                         if (type === 'received') receiveSound.play();
-                        // sendSound.play() is handled in sendBtn.onclick for sent messages
                         // Aplicar reacción si ya existe al cargar historial
                         if (m.reaction) toggleHeart(m.id, false, true);
                     } else {
@@ -1906,7 +1968,6 @@
                             // If it was a pending message, remove the pending class
                             if (msgEl.classList.contains('pending')) {
                                 msgEl.classList.remove('pending');
-                                if (m.sender === myUserId) sendSound.play(); // Play send sound when confirmed
                             }
 
                             if (m.seen) {
@@ -1999,39 +2060,51 @@
         // Listener de Cine (YouTube)
         db.ref(`chats/${roomId}/cinema`).on('value', (snapshot) => {
             const data = snapshot.val();
-            if (!data || !ytPlayer) return;
+            if (!ytPlayer) return; // Ensure player is ready
 
+            const currentVideoId = ytPlayer.getVideoData ? ytPlayer.getVideoData().video_id : null;
+
+            if (!data || !data.videoId) {
+                // document.getElementById('player').style.display = 'none'; // SUPRIMIDO: El CSS lo maneja ahora
+                document.getElementById('cinema-no-video').style.display = 'flex';
+                if (ytPlayer && ytPlayer.stopVideo) ytPlayer.stopVideo();
+                if (ytPlayer && ytPlayer.clearVideo) ytPlayer.clearVideo();
+                return;
+            }
+
+            // A video is available, show the player
             document.getElementById('cinema-no-video').style.display = 'none';
-            document.getElementById('player').style.display = 'block';
+            // document.getElementById('player').style.display = 'block'; // SUPRIMIDO: El CSS lo maneja ahora
 
-            if (data.videoId && ytPlayer.getVideoData && ytPlayer.getVideoData().video_id !== data.videoId) {
-                isInternalChange = true;
-                ytPlayer.loadVideoById(data.videoId);
-                // Ensure player is ready before seeking
-                const checkReady = setInterval(() => {
-                    if (ytPlayer.getPlayerState() !== -1) { // -1 means unstarted
-                        ytPlayer.seekTo(data.time, true);
-                        if (data.state === 1) ytPlayer.playVideo();
-                        if (data.state === 2) ytPlayer.pauseVideo();
-                        clearInterval(checkReady);
-                    }
-                }, 100); // Check every 100ms
-                setTimeout(() => isInternalChange = false, 1000); // Give time for load and seek
-            } else if (data.videoId && ytPlayer.getVideoData && ytPlayer.getVideoData().video_id === data.videoId) {
-                // If same video, just sync time and state
-                if (data.sender !== myUserId) {
-                    isInternalChange = true;
-                    const localTime = ytPlayer.getCurrentTime();
-                    // Only sync if significant difference or state mismatch
-                    if (Math.abs(localTime - data.time) > 2 || ytPlayer.getPlayerState() !== data.state) {
-                        ytPlayer.seekTo(data.time, true);
-                        if (data.state === 1) ytPlayer.playVideo();
-                        else if (data.state === 2) ytPlayer.pauseVideo();
-                    }
-                    setTimeout(() => isInternalChange = false, 500);
+            // Check if a new video needs to be loaded or if the existing one needs a reset (e.g., to 0:00)
+            const shouldLoadNewVideo = data.videoId !== currentVideoId;
+            // Only consider seeking if the video is the same AND the time difference is significant OR the state is different.
+            const shouldSyncPlayback = data.videoId === currentVideoId && (
+                Math.abs(ytPlayer.getCurrentTime() - data.time) > 2 || 
+                ytPlayer.getPlayerState() !== data.state
+            );
+
+            if (shouldLoadNewVideo) {
+                isInternalChange = true; // Suppress our own onPlayerStateChange from firing
+                ytPlayer.loadVideoById(data.videoId, data.time || 0);
+                // Reset isInternalChange after a short delay to allow player to load/settle
+                setTimeout(() => isInternalChange = false, 500); 
+            } else if (shouldSyncPlayback) {
+                // If it's the same video, and playback needs syncing
+                isInternalChange = true; // Suppress our own onPlayerStateChange from firing
+                ytPlayer.seekTo(data.time, true);
+                if (data.state === 1 && ytPlayer.getPlayerState() !== 1) { // Play
+                    ytPlayer.playVideo();
+                } else if (data.state === 2 && ytPlayer.getPlayerState() !== 2) { // Pause
+                    ytPlayer.pauseVideo();
+                } else if (data.state === 0 && ytPlayer.getPlayerState() !== 0) { // Ended
+                    // YouTube API doesn't have a direct "end" command, but setting time to end or pausing might suffice.
+                    // For now, let's focus on play/pause and seek.
                 }
+                setTimeout(() => isInternalChange = false, 500);
             }
         });
+
 
         db.ref(`chats/${roomId}/messages`).on('child_removed', (snapshot) => {
             document.querySelector(`[data-id="${snapshot.key}"]`)?.remove();
@@ -2133,7 +2206,6 @@
              twemoji.parse(replyContentElement);
         }
 
-        // REMOVED: The timeout for loading ring removal as this will be handled by Firebase's child_changed listener
         scrollToBottom();
     }
 
@@ -2254,7 +2326,7 @@
 
     cancelReply.onclick = () => {
         selectedReplyData = null;
-        editingMessageId = null;
+        editingMessageId = null; // Ensure editingMessageId is cleared when canceling reply
         replyPreview.style.display = 'none';
         userInput.value = "";
     };
